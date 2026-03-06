@@ -85,15 +85,7 @@ function App() {
     if (amount > 0) setTonBalance(prev => Number((prev + amount).toFixed(3)));
   };
 
-  const spendTon = (amount: number): boolean => {
-    if (amount <= 0) return true;
-    if (tonBalance < amount) {
-      alert('Недостаточно TON\nНужно: ' + amount.toFixed(3) + ', есть: ' + tonBalance.toFixed(3));
-      return false;
-    }
-    setTonBalance(prev => Number((prev - amount).toFixed(3)));
-    return true;
-  };
+  
 
   // ─── Логика игры ──────────────────────────────────────────────
   const collectToStorage = (spawnIdx: number) => {
