@@ -3,7 +3,7 @@ import { TonConnectButton, useTonWallet } from '@tonconnect/ui-react';
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, onValue } from "firebase/database";
 
-// ─── ТВОЙ КОНФИГ FIREBASE (замени на свой) ───────────────────────
+// Замени на свой реальный конфиг из Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyBHl1Dw49IVli7P-BgPkGT_Z82NJuK_tLg",
   authDomain: "ton-fusion-lab.firebaseapp.com",
@@ -31,17 +31,17 @@ interface Reactor {
 }
 
 function App() {
-  // Константы
+  // ─── Константы ────────────────────────────────────────────────
   const FREE_SLOTS = 7;
   const TOTAL_SLOTS = 20;
-  const SPAWN_INTERVAL_MS = 10 * 60 * 1000;
+  const SPAWN_INTERVAL_MS = 10 * 60 * 1000; // 10 минут
   const HOLD_DELETE_MS = 1500;
   const REACTOR_MIN_MS = 18 * 3600 * 1000;
   const REACTOR_MAX_MS = 24 * 3600 * 1000;
   const FREE_REACTORS = 1;
   const TOTAL_REACTORS = 3;
 
-  // Состояния
+  // ─── Состояния ────────────────────────────────────────────────
   const wallet = useTonWallet();
 
   const [activeTab, setActiveTab] = useState<Tab>('instruction');
@@ -53,15 +53,15 @@ function App() {
   const [nextSpawnTime, setNextSpawnTime] = useState<number>(Date.now() + SPAWN_INTERVAL_MS);
   const [currentTime, setCurrentTime] = useState(Date.now());
 
+  // long-press
   const [holdTimer, setHoldTimer] = useState<NodeJS.Timeout | null>(null);
   const [holdProgress, setHoldProgress] = useState(0);
   const [holdTargetIndex, setHoldTargetIndex] = useState<number | null>(null);
 
+  // реакторы
   const [reactors, setReactors] = useState<Reactor[]>(
     Array(TOTAL_REACTORS).fill({ particle: null, startTime: null, duration: 0 })
   );
-
-  // ─── КОНЕЦ ЧАСТИ 1 ────────────────────────────────────────────────
   // ─── Вспомогательные функции ──────────────────────────────────
   const getColor = (level: number): string =>
     [
@@ -85,9 +85,16 @@ function App() {
     if (amount > 0) setTonBalance(prev => Number((prev + amount).toFixed(3)));
   };
 
-  
-
-  // ─── Логика игры ──────────────────────────────────────────────
+  const spendTon = (amount: number): boolean => {
+    if (amount <= 0) return true;
+    if (tonBalance < amount) {
+      alert('Недостаточно TON\nНужно: ' + amount.toFixed(3) + ', есть: ' + tonBalance.toFixed(3));
+      return false;
+    }
+    setTonBalance(prev => Number((prev - amount).toFixed(3)));
+    return true;
+  };
+// ─── Логика игры ──────────────────────────────────────────────
   const collectToStorage = (spawnIdx: number) => {
     const particle = spawnSlots[spawnIdx];
     if (!particle) return;
@@ -201,8 +208,8 @@ function App() {
 
     setSelectedIndex(null);
   };
+  // ─── Эффекты ──────────────────────────────────────────────────
 
-  // ─── КОНЕЦ ЧАСТИ 2 ────────────────────────────────────────────────
   // Плавное обновление времени каждую секунду
   useEffect(() => {
     const interval = setInterval(() => {
@@ -245,7 +252,7 @@ function App() {
           if (now >= end) {
             const reward = r.particle.level * 0.12;
             addTon(reward);
-            alert('Реактор ' + (i + 1) + ' завершён → +' + reward.toFixed(3) + ' TON');
+            alert(`Реактор ${i + 1} завершён → +${reward.toFixed(3)} TON`);
             next[i] = { particle: null, startTime: null, duration: 0 };
           }
         });
@@ -259,23 +266,26 @@ function App() {
   useEffect(() => {
     if (!wallet?.account?.address) return;
 
-    const playerId = wallet.account.address.replace(/[^a-zA-Z0-9]/g, '_'); // безопасный ключ
+    const playerId = wallet.account.address.replace(/[^a-zA-Z0-9]/g, '_'); // безопасный ключ для Firebase
     const playerRef = ref(db, `players/${playerId}`);
 
     // Загрузка данных из облака
     const unsubscribe = onValue(playerRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        setStorage(data.storage ?? Array(TOTAL_SLOTS).fill(null));
-        setSpawnSlots(data.spawnSlots ?? [null, null]);
-        setTonBalance(data.tonBalance ?? 0);
-        setReactors(data.reactors ?? Array(TOTAL_REACTORS).fill({ particle: null, startTime: null, duration: 0 }));
-        setNextSpawnTime(data.nextSpawnTime ?? Date.now() + SPAWN_INTERVAL_MS);
-        setSelectedIndex(data.selectedIndex ?? null);
+        setStorage(data.storage || Array(TOTAL_SLOTS).fill(null));
+        setSpawnSlots(data.spawnSlots || [null, null]);
+        setTonBalance(data.tonBalance || 0);
+        setReactors(data.reactors || Array(TOTAL_REACTORS).fill({ particle: null, startTime: null, duration: 0 }));
+        setNextSpawnTime(data.nextSpawnTime || Date.now() + SPAWN_INTERVAL_MS);
+        setSelectedIndex(data.selectedIndex || null);
+      } else {
+        // Если данных нет — дефолт
+        setNextSpawnTime(Date.now() + SPAWN_INTERVAL_MS);
       }
     });
 
-    // Сохранение изменений (каждые 5 секунд)
+    // Сохранение изменений (каждые 5 сек)
     const saveInterval = setInterval(() => {
       set(playerRef, {
         storage,
@@ -285,7 +295,7 @@ function App() {
         nextSpawnTime,
         selectedIndex,
         lastSave: Date.now(),
-      });
+      }).catch(err => console.error('Firebase save error', err));
     }, 5000);
 
     return () => {
@@ -293,8 +303,6 @@ function App() {
       clearInterval(saveInterval);
     };
   }, [wallet?.account?.address, storage, spawnSlots, tonBalance, reactors, nextSpawnTime, selectedIndex]);
-
-  // ─── КОНЕЦ ЧАСТИ 3 ────────────────────────────────────────────────
   // ─── Рендер ───────────────────────────────────────────────────
 
   const cardStyle = {
@@ -376,7 +384,7 @@ function App() {
                     boxShadow: p ? '0 0 16px rgba(255,255,255,0.35)' : 'none',
                   }}
                 >
-                  {p ? p.level :` Слот ${i + 1}`}
+                  {p ? p.level : `Слот ${i + 1}`}
                 </div>
               ))}
             </div>
