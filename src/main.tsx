@@ -1,17 +1,15 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
-import './index.css'
+
 import { TonConnectUIProvider } from '@tonconnect/ui-react'
 
-// Это обязательно для TonConnect — оборачиваем всё приложение
-ReactDOM.createRoot(document.getElementById('root')!).render(
+const manifestUrl = 'https://ton-fusion-lab.vercel.app/tonconnect-manifest.json'
+
+ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <TonConnectUIProvider 
-      manifestUrl="https://ton.org/tonconnect-manifest.json"  // временный публичный манифест
-      // actionsConfiguration={{ twaReturnUrl: 'https://t.me/your_bot' }} — добавишь позже
-    >
+    <TonConnectUIProvider manifestUrl={manifestUrl}>
       <App />
     </TonConnectUIProvider>
-  </React.StrictMode>,
+  </React.StrictMode>
 )

@@ -1,5 +1,21 @@
 import { useState, useEffect } from 'react';
 import { TonConnectButton, useTonWallet } from '@tonconnect/ui-react';
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, set, onValue } from "firebase/database";
+
+// ─── ТВОЙ КОНФИГ FIREBASE (замени на свой) ───────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyBHl1Dw49IVli7P-BgPkGT_Z82NJuK_tLg",
+  authDomain: "ton-fusion-lab.firebaseapp.com",
+  databaseURL: "https://ton-fusion-lab-default-rtdb.firebaseio.com",
+  projectId: "ton-fusion-lab",
+  storageBucket: "ton-fusion-lab.firebasestorage.app",
+  messagingSenderId: "759094438608",
+  appId: "1:759094438608:web:05c7360fc503c80008ccd5"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
 
 type Tab = 'instruction' | 'merge' | 'reactors' | 'donate' | 'profile';
 
@@ -15,17 +31,17 @@ interface Reactor {
 }
 
 function App() {
-  // ─── Константы ────────────────────────────────────────────────
+  // Константы
   const FREE_SLOTS = 7;
   const TOTAL_SLOTS = 20;
-  const SPAWN_INTERVAL_MS = 10 * 60 * 1000; // 10 минут
+  const SPAWN_INTERVAL_MS = 10 * 60 * 1000;
   const HOLD_DELETE_MS = 1500;
   const REACTOR_MIN_MS = 18 * 3600 * 1000;
   const REACTOR_MAX_MS = 24 * 3600 * 1000;
   const FREE_REACTORS = 1;
   const TOTAL_REACTORS = 3;
 
-  // ─── Состояния ────────────────────────────────────────────────
+  // Состояния
   const wallet = useTonWallet();
 
   const [activeTab, setActiveTab] = useState<Tab>('instruction');
@@ -37,15 +53,15 @@ function App() {
   const [nextSpawnTime, setNextSpawnTime] = useState<number>(Date.now() + SPAWN_INTERVAL_MS);
   const [currentTime, setCurrentTime] = useState(Date.now());
 
-  // long-press удаление
   const [holdTimer, setHoldTimer] = useState<NodeJS.Timeout | null>(null);
   const [holdProgress, setHoldProgress] = useState(0);
   const [holdTargetIndex, setHoldTargetIndex] = useState<number | null>(null);
 
-  // реакторы
   const [reactors, setReactors] = useState<Reactor[]>(
     Array(TOTAL_REACTORS).fill({ particle: null, startTime: null, duration: 0 })
-  ); 
+  );
+
+  // ─── КОНЕЦ ЧАСТИ 1 ────────────────────────────────────────────────
   // ─── Вспомогательные функции ──────────────────────────────────
   const getColor = (level: number): string =>
     [
@@ -62,7 +78,7 @@ function App() {
     const seconds = Math.floor(ms / 1000);
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    return m.toString().padStart(2, '0') + ':' + s.toString().padStart(2, '0');
   };
 
   const addTon = (amount: number) => {
@@ -72,7 +88,7 @@ function App() {
   const spendTon = (amount: number): boolean => {
     if (amount <= 0) return true;
     if (tonBalance < amount) {
-      alert(`Недостаточно TON\nНужно: ${amount.toFixed(3)}, есть: ${tonBalance.toFixed(3)}`);
+      alert('Недостаточно TON\nНужно: ' + amount.toFixed(3) + ', есть: ' + tonBalance.toFixed(3));
       return false;
     }
     setTonBalance(prev => Number((prev - amount).toFixed(3)));
@@ -170,7 +186,7 @@ function App() {
   const placeInReactor = (reactorIdx: number, storageIdx: number) => {
     const p = storage[storageIdx];
     if (!p || p.level < 6) {
-      alert('Нужна любого частица уровня');
+      alert('Нужна частица уровня 6+');
       return;
     }
 
@@ -193,8 +209,8 @@ function App() {
 
     setSelectedIndex(null);
   };
-  // ─── Эффекты ──────────────────────────────────────────────────
 
+  // ─── КОНЕЦ ЧАСТИ 2 ────────────────────────────────────────────────
   // Плавное обновление времени каждую секунду
   useEffect(() => {
     const interval = setInterval(() => {
@@ -237,7 +253,7 @@ function App() {
           if (now >= end) {
             const reward = r.particle.level * 0.12;
             addTon(reward);
-            alert(`Реактор ${i + 1} завершён → +${reward.toFixed(3)} TON`);
+            alert('Реактор ' + (i + 1) + ' завершён → +' + reward.toFixed(3) + ' TON');
             next[i] = { particle: null, startTime: null, duration: 0 };
           }
         });
@@ -247,73 +263,46 @@ function App() {
     return () => clearInterval(id);
   }, []);
 
-  // Сохранение прогресса
+  // Синхронизация с Firebase по адресу кошелька
   useEffect(() => {
     if (!wallet?.account?.address) return;
 
-    const key = `fusion-lab_${wallet.account.address}`;
-    const data = {
-      storage,
-      spawnSlots,
-      tonBalance,
-      reactors,
-      nextSpawnTime,
-      lastSave: Date.now(),
-    };
-    localStorage.setItem(key, JSON.stringify(data));
-  }, [storage, spawnSlots, tonBalance, reactors, nextSpawnTime, wallet?.account?.address]);
+    const playerId = wallet.account.address.replace(/[^a-zA-Z0-9]/g, '_'); // безопасный ключ
+    const playerRef = ref(db, `players/${playerId}`);
 
-  // Загрузка + оффлайн-прогресс
-  useEffect(() => {
-    if (!wallet?.account?.address) return;
-
-    const key = `fusion-lab_${wallet.account.address}`;
-    const saved = localStorage.getItem(key);
-
-    if (!saved) {
-      setNextSpawnTime(Date.now() + SPAWN_INTERVAL_MS);
-      return;
-    }
-
-    try {
-      const data = JSON.parse(saved);
-      setStorage(data.storage ?? Array(TOTAL_SLOTS).fill(null));
-      setSpawnSlots(data.spawnSlots ?? [null, null]);
-      setTonBalance(data.tonBalance ?? 0);
-      setReactors(data.reactors ?? Array(TOTAL_REACTORS).fill({ particle: null, startTime: null, duration: 0 }));
-
-      const savedNext = data.nextSpawnTime;
-      const now = Date.now();
-
-      if (!savedNext || savedNext <= now) {
-        const msPassed = savedNext ? now - savedNext : 0;
-        const intervals = Math.floor(msPassed / SPAWN_INTERVAL_MS) + 1;
-        const maxFill = 2 - spawnSlots.filter(Boolean).length;
-        const toFill = Math.min(intervals, maxFill);
-
-        if (toFill > 0) {
-          setSpawnSlots(prev => {
-            let slots = [...prev];
-            let filled = 0;
-            for (let j = 0; j < slots.length && filled < toFill; j++) {
-              if (!slots[j]) {
-                slots[j] = generateParticle();
-                filled++;
-              }
-            }
-            return slots;
-          });
-        }
-        setNextSpawnTime(now + SPAWN_INTERVAL_MS);
-      } else {
-        setNextSpawnTime(savedNext);
+    // Загрузка данных из облака
+    const unsubscribe = onValue(playerRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setStorage(data.storage ?? Array(TOTAL_SLOTS).fill(null));
+        setSpawnSlots(data.spawnSlots ?? [null, null]);
+        setTonBalance(data.tonBalance ?? 0);
+        setReactors(data.reactors ?? Array(TOTAL_REACTORS).fill({ particle: null, startTime: null, duration: 0 }));
+        setNextSpawnTime(data.nextSpawnTime ?? Date.now() + SPAWN_INTERVAL_MS);
+        setSelectedIndex(data.selectedIndex ?? null);
       }
-    } catch (err) {
-      console.warn('Повреждённый save → дефолт', err);
-      setNextSpawnTime(Date.now() + SPAWN_INTERVAL_MS);
-    }
-  }, [wallet?.account?.address]);
+    });
 
+    // Сохранение изменений (каждые 5 секунд)
+    const saveInterval = setInterval(() => {
+      set(playerRef, {
+        storage,
+        spawnSlots,
+        tonBalance,
+        reactors,
+        nextSpawnTime,
+        selectedIndex,
+        lastSave: Date.now(),
+      });
+    }, 5000);
+
+    return () => {
+      unsubscribe();
+      clearInterval(saveInterval);
+    };
+  }, [wallet?.account?.address, storage, spawnSlots, tonBalance, reactors, nextSpawnTime, selectedIndex]);
+
+  // ─── КОНЕЦ ЧАСТИ 3 ────────────────────────────────────────────────
   // ─── Рендер ───────────────────────────────────────────────────
 
   const cardStyle = {
@@ -324,7 +313,7 @@ function App() {
   };
 
   const remainingMs = nextSpawnTime ? Math.max(0, nextSpawnTime - currentTime) : 0;
-  const remainingSec = Math.floor(remainingMs / 1000);
+
   return (
     <div
       style={{
@@ -366,7 +355,7 @@ function App() {
                   fontSize: 32,
                   fontFamily: 'monospace',
                   fontWeight: 'bold',
-                  color: remainingSec <= 60 ? '#ff4444' : '#40e0ff',
+                  color: remainingMs / 1000 <= 60 ? '#ff4444' : '#40e0ff',
                   letterSpacing: '1px',
                 }}
               >
@@ -395,7 +384,7 @@ function App() {
                     boxShadow: p ? '0 0 16px rgba(255,255,255,0.35)' : 'none',
                   }}
                 >
-                  {p ? p.level : `Слот ${i + 1}`}
+                  {p ? p.level :` Слот ${i + 1}`}
                 </div>
               ))}
             </div>
@@ -427,6 +416,7 @@ function App() {
                     </div>
                   );
                 }
+
                 return (
                   <div
                     key={i}
@@ -522,7 +512,6 @@ function App() {
               if (selectedIndex !== null) {
                 selectedParticleLevel = storage[selectedIndex]?.level;
               }
-
               return (
                 <div
                   key={i}
@@ -612,13 +601,15 @@ function App() {
           bottom: 0,
           left: 0,
           right: 0,
-          height: 80,
-          background: 'rgba(8,10,25,0.94)',
-          borderTop: '1px solid rgba(0,140,255,0.22)',
+          height: 90,
+          background: 'rgba(8,10,25,0.96)',
+          borderTop: '1px solid rgba(0,140,255,0.35)',
           display: 'flex',
           justifyContent: 'space-around',
           alignItems: 'center',
           zIndex: 100,
+          padding: '0 10px',
+          boxShadow: '0 -4px 12px rgba(0,0,0,0.5)',
         }}
       >
         {['instruction', 'merge', 'reactors', 'donate', 'profile'].map(tab => (
@@ -626,24 +617,35 @@ function App() {
             key={tab}
             onClick={() => setActiveTab(tab as Tab)}
             style={{
-              background: 'none',
-              border: 'none',
-              color: activeTab === tab ? '#40c0ff' : '#888',
-              fontSize: 12,
+              background: activeTab === tab ? 'rgba(64,192,255,0.18)' : 'transparent',
+              border: activeTab === tab 
+                ? '2px solid #40c0ff' 
+                : '1px solid rgba(64,192,255,0.25)',
+              borderRadius: 16,
+              color: activeTab === tab ? '#40c0ff' : '#a0c0ff',
+              fontSize: 14,
+              fontWeight: activeTab === tab ? 'bold' : 'normal',
+              padding: '12px 16px',
+              minWidth: 70,
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: 3,
-              padding: '6px 10px',
-              borderRadius: 10,
+              gap: 4,
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              boxShadow: activeTab === tab 
+                ? '0 4px 12px rgba(64,192,255,0.4)' 
+                : 'none',
             }}
           >
-            {tab === 'instruction' && '📖'}
-            {tab === 'merge' && '🧊'}
-            {tab === 'reactors' && '⚛️'}
-            {tab === 'donate' && '💎'}
-            {tab === 'profile' && '👤'}
-            <span>
+            <span style={{ fontSize: 20 }}>
+              {tab === 'instruction' && '📖'}
+              {tab === 'merge' && '🧊'}
+              {tab === 'reactors' && '⚛️'}
+              {tab === 'donate' && '💎'}
+              {tab === 'profile' && '👤'}
+            </span>
+            <span style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
               {tab === 'instruction' ? 'Инстр.' :
                tab === 'merge' ? 'Сбор' :
                tab === 'reactors' ? 'Реакт.' :
