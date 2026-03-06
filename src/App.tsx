@@ -3,6 +3,7 @@ import { TonConnectButton, useTonWallet } from '@tonconnect/ui-react';
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, onValue } from "firebase/database";
 
+
 // Замени на свой реальный конфиг из Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyBHl1Dw49IVli7P-BgPkGT_Z82NJuK_tLg",
