@@ -7,7 +7,7 @@ import { TonConnectUIProvider } from '@tonconnect/ui-react';
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <TonConnectUIProvider
-      manifestUrl="http://localhost:5173/tonconnect-manifest.json"
+      manifestUrl="https://ton-fusion-lab.vercel.app/tonconnect-manifest.json"
     >
       <App />
     </TonConnectUIProvider>
