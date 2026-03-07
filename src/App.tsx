@@ -1,10 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useReducer } from 'react';
 import { TonConnectButton, useTonWallet } from '@tonconnect/ui-react';
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, onValue } from "firebase/database";
 
-
-// Замени на свой реальный конфиг из Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyBHl1Dw49IVli7P-BgPkGT_Z82NJuK_tLg",
   authDomain: "ton-fusion-lab.firebaseapp.com",
@@ -32,17 +30,14 @@ interface Reactor {
 }
 
 function App() {
-  // ─── Константы ────────────────────────────────────────────────
   const FREE_SLOTS = 7;
   const TOTAL_SLOTS = 20;
-  const SPAWN_INTERVAL_MS = 10 * 60 * 1000; // 10 минут
-  const HOLD_DELETE_MS = 1500;
+  const SPAWN_INTERVAL_MS = 10 * 60 * 1000;
   const REACTOR_MIN_MS = 18 * 3600 * 1000;
   const REACTOR_MAX_MS = 24 * 3600 * 1000;
   const FREE_REACTORS = 1;
   const TOTAL_REACTORS = 3;
 
-  // ─── Состояния ────────────────────────────────────────────────
   const wallet = useTonWallet();
 
   const [activeTab, setActiveTab] = useState<Tab>('instruction');
@@ -52,19 +47,13 @@ function App() {
   const [tonBalance, setTonBalance] = useState(0.000);
 
   const [nextSpawnTime, setNextSpawnTime] = useState<number>(Date.now() + SPAWN_INTERVAL_MS);
-  const [currentTime, setCurrentTime] = useState(Date.now());
 
-  // long-press
-  const [holdTimer, setHoldTimer] = useState<NodeJS.Timeout | null>(null);
-  const [holdProgress, setHoldProgress] = useState(0);
-  const [holdTargetIndex, setHoldTargetIndex] = useState<number | null>(null);
-
-  // реакторы
   const [reactors, setReactors] = useState<Reactor[]>(
     Array(TOTAL_REACTORS).fill({ particle: null, startTime: null, duration: 0 })
   );
-  // ─── Вспомогательные функции ──────────────────────────────────
-  const getColor = (level: number): string =>
+
+  const [, forceUpdate] = useReducer(x => x + 1, 0);
+const getColor = (level: number): string =>
     [
       '#4a90e2', '#50c878', '#f1c40f', '#e67e22', '#e74c3c',
       '#9b59b6', '#3498db', '#1abc9c', '#f39c12', '#ff4500',
@@ -86,27 +75,13 @@ function App() {
     if (amount > 0) setTonBalance(prev => Number((prev + amount).toFixed(3)));
   };
 
-  // spendTon пока не используется — комментируем или удаляем, чтобы убрать TS6133
-// Если позже понадобится — раскомментируй и вызови где-то
-/*
-const spendTon = (amount: number): boolean => {
-  if (amount <= 0) return true;
-  if (tonBalance < amount) {
-    alert('Недостаточно TON\nНужно: ' + amount.toFixed(3) + ', есть: ' + tonBalance.toFixed(3));
-    return false;
-  }
-  setTonBalance(prev => Number((prev - amount).toFixed(3)));
-  return true;
-};
-*/
-// ─── Логика игры ──────────────────────────────────────────────
   const collectToStorage = (spawnIdx: number) => {
     const particle = spawnSlots[spawnIdx];
     if (!particle) return;
 
     const emptyIdx = storage.findIndex((slot, i) => slot === null && i < FREE_SLOTS);
     if (emptyIdx === -1) {
-      alert('Бесплатные ячейки заполнены');
+      alert('Free slots are full');
       return;
     }
 
@@ -158,39 +133,10 @@ const spendTon = (amount: number): boolean => {
     setSelectedIndex(null);
   };
 
-  const startHoldDelete = (idx: number) => {
-    if (holdTimer) clearTimeout(holdTimer);
-    setHoldProgress(0);
-    setHoldTargetIndex(idx);
-
-    const interval = setInterval(() => {
-      setHoldProgress(p => Math.min(p + 100 / (HOLD_DELETE_MS / 100), 100));
-    }, 100);
-
-    const timer = setTimeout(() => {
-      clearInterval(interval);
-      setStorage(prev => {
-        const n = [...prev];
-        n[idx] = null;
-        return n;
-      });
-      setHoldTargetIndex(null);
-      setHoldProgress(0);
-    }, HOLD_DELETE_MS);
-
-    setHoldTimer(timer);
-  };
-
-  const cancelHoldDelete = () => {
-    if (holdTimer) clearTimeout(holdTimer);
-    setHoldTargetIndex(null);
-    setHoldProgress(0);
-  };
-
   const placeInReactor = (reactorIdx: number, storageIdx: number) => {
     const p = storage[storageIdx];
     if (!p || p.level < 6) {
-      alert('Нужна частица');
+      alert('Need level 6+ particle');
       return;
     }
 
@@ -213,39 +159,42 @@ const spendTon = (amount: number): boolean => {
 
     setSelectedIndex(null);
   };
-  // ─── Эффекты ──────────────────────────────────────────────────
-
-  // Плавное обновление времени каждую секунду
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(Date.now());
-    }, 1000);
+    const interval = setInterval(forceUpdate, 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // Логика спавна частиц
   useEffect(() => {
-    const tick = () => {
+    const spawnMissedParticles = () => {
       const now = Date.now();
-      if (nextSpawnTime <= now) {
-        setSpawnSlots(prev => {
-          const slots = [...prev];
-          const free = slots.findIndex(s => s === null);
-          if (free !== -1) {
-            slots[free] = generateParticle();
+
+      if (nextSpawnTime > now) return;
+
+      const missedIntervals = Math.floor((now - nextSpawnTime) / SPAWN_INTERVAL_MS) + 1;
+
+      setSpawnSlots(prev => {
+        let slots = [...prev];
+
+        for (let i = 0; i < missedIntervals; i++) {
+          const freeIndex = slots.findIndex(s => s === null);
+
+          if (freeIndex !== -1) {
+            slots[freeIndex] = generateParticle();
           }
-          return slots;
-        });
-        setNextSpawnTime(now + SPAWN_INTERVAL_MS);
-      }
+        }
+
+        return slots;
+      });
+
+      setNextSpawnTime(now + SPAWN_INTERVAL_MS);
     };
 
-    tick();
-    const id = setInterval(tick, 1000);
+    spawnMissedParticles();
+
+    const id = setInterval(spawnMissedParticles, 5000);
     return () => clearInterval(id);
   }, [nextSpawnTime]);
 
-  // Проверка реакторов
   useEffect(() => {
     const id = setInterval(() => {
       const now = Date.now();
@@ -257,7 +206,7 @@ const spendTon = (amount: number): boolean => {
           if (now >= end) {
             const reward = r.particle.level * 0.12;
             addTon(reward);
-            alert(`Реактор ${i + 1} завершён → +${reward.toFixed(3)} TON`);
+            alert(`Reactor ${i + 1} completed → +${reward.toFixed(3)} TON`);
             next[i] = { particle: null, startTime: null, duration: 0 };
           }
         });
@@ -267,14 +216,12 @@ const spendTon = (amount: number): boolean => {
     return () => clearInterval(id);
   }, []);
 
-  // Синхронизация с Firebase по адресу кошелька
   useEffect(() => {
     if (!wallet?.account?.address) return;
 
-    const playerId = wallet.account.address.replace(/[^a-zA-Z0-9]/g, '_'); // безопасный ключ для Firebase
+    const playerId = wallet.account.address.replace(/[^a-zA-Z0-9]/g, '_');
     const playerRef = ref(db, `players/${playerId}`);
 
-    // Загрузка данных из облака
     const unsubscribe = onValue(playerRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -285,12 +232,10 @@ const spendTon = (amount: number): boolean => {
         setNextSpawnTime(data.nextSpawnTime || Date.now() + SPAWN_INTERVAL_MS);
         setSelectedIndex(data.selectedIndex || null);
       } else {
-        // Если данных нет — дефолт
         setNextSpawnTime(Date.now() + SPAWN_INTERVAL_MS);
       }
     });
 
-    // Сохранение изменений (каждые 5 сек)
     const saveInterval = setInterval(() => {
       set(playerRef, {
         storage,
@@ -300,7 +245,7 @@ const spendTon = (amount: number): boolean => {
         nextSpawnTime,
         selectedIndex,
         lastSave: Date.now(),
-      }).catch(err => console.error('Firebase save error', err));
+      }).catch(err => console.error('Firebase save error:', err));
     }, 5000);
 
     return () => {
@@ -308,16 +253,14 @@ const spendTon = (amount: number): boolean => {
       clearInterval(saveInterval);
     };
   }, [wallet?.account?.address, storage, spawnSlots, tonBalance, reactors, nextSpawnTime, selectedIndex]);
-  // ─── Рендер ───────────────────────────────────────────────────
-
-  const cardStyle = {
+const cardStyle = {
     background: 'rgba(15,20,45,0.65)',
     borderRadius: '12px',
     padding: '20px',
     marginBottom: '16px',
   };
 
-  const remainingMs = nextSpawnTime ? Math.max(0, nextSpawnTime - currentTime) : 0;
+  const remainingMs = nextSpawnTime ? Math.max(0, nextSpawnTime - Date.now()) : 0;
 
   return (
     <div
@@ -338,22 +281,21 @@ const spendTon = (amount: number): boolean => {
           <div style={cardStyle}>
             <h2>📖 Как играть</h2>
             <ol style={{ paddingLeft: '24px', lineHeight: 1.6 }}>
-              <li>Частицы появляются каждые 10 минут</li>
-              <li>Объединяйте одинаковые уровни</li>
-              <li>Уровень 6+ → реакторы (1 бесплатный)</li>
-              <li>Через 18–24 ч → TON на баланс</li>
-              <li>Зажмите частицу → удаление</li>
+              <li>Particles appear every 10 minutes</li>
+              <li>Merge same levels</li>
+              <li>Level 6+ → reactors (1 free)</li>
+              <li>After 18–24h → TON to balance</li>
             </ol>
           </div>
         )}
 
         {activeTab === 'merge' && (
           <div style={cardStyle}>
-            <h2>🧊 Сбор</h2>
+            <h2>🧊 Merge</h2>
 
             <div style={{ textAlign: 'center', marginBottom: '16px' }}>
               <div style={{ color: '#88ccff', marginBottom: 4, fontSize: 15 }}>
-                Следующая частица через
+                Next particle in
               </div>
               <div
                 style={{
@@ -361,7 +303,6 @@ const spendTon = (amount: number): boolean => {
                   fontFamily: 'monospace',
                   fontWeight: 'bold',
                   color: remainingMs / 1000 <= 60 ? '#ff4444' : '#40e0ff',
-                  letterSpacing: '1px',
                 }}
               >
                 {formatTime(remainingMs)}
@@ -377,7 +318,7 @@ const spendTon = (amount: number): boolean => {
                     width: 88,
                     height: 88,
                     background: p ? getColor(p.level) : 'rgba(0,120,220,0.12)',
-                    border: selectedIndex === i - 2 ? '3px solid #40c0ff' : '2px dashed #4080ff44',
+                    border: '2px dashed #4080ff44',
                     borderRadius: 16,
                     display: 'flex',
                     alignItems: 'center',
@@ -385,11 +326,10 @@ const spendTon = (amount: number): boolean => {
                     fontSize: 32,
                     fontWeight: 'bold',
                     color: '#fff',
-                    cursor: p ? 'pointer' : 'default',
-                    boxShadow: p ? '0 0 16px rgba(255,255,255,0.35)' : 'none',
+                    cursor: 'pointer',
                   }}
                 >
-                  {p ? p.level : `Слот ${i + 1}`}
+                  {p ? p.level : `Slot ${i + 1}`}
                 </div>
               ))}
             </div>
@@ -397,8 +337,6 @@ const spendTon = (amount: number): boolean => {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, maxWidth: 420, margin: '0 auto' }}>
               {storage.map((p, i) => {
                 const locked = i >= FREE_SLOTS;
-                const selected = selectedIndex === i;
-                const holding = holdTargetIndex === i;
 
                 if (locked) {
                   return (
@@ -426,15 +364,10 @@ const spendTon = (amount: number): boolean => {
                   <div
                     key={i}
                     onClick={() => handleCellClick(i, false)}
-                    onMouseDown={() => p && selected && startHoldDelete(i)}
-                    onMouseUp={cancelHoldDelete}
-                    onMouseLeave={cancelHoldDelete}
-                    onTouchStart={() => p && selected && startHoldDelete(i)}
-                    onTouchEnd={cancelHoldDelete}
                     style={{
                       aspectRatio: 1,
                       background: p ? getColor(p.level) : 'rgba(30,40,80,0.4)',
-                      border: selected ? '3px solid #40c0ff' : '1px solid #80a0ff33',
+                      border: '1px solid #80a0ff33',
                       borderRadius: 12,
                       display: 'flex',
                       alignItems: 'center',
@@ -443,53 +376,29 @@ const spendTon = (amount: number): boolean => {
                       fontWeight: 'bold',
                       color: '#fff',
                       cursor: 'pointer',
-                      position: 'relative',
-                      boxShadow: p ? '0 0 12px rgba(255,255,255,0.25)' : 'none',
                     }}
                   >
                     {p ? p.level : ''}
-                    {holding && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          height: 5,
-                          background: 'rgba(200,0,0,0.4)',
-                        }}
-                      >
-                        <div
-                          style={{
-                            height: '100%',
-                            width: `${holdProgress}%`,
-                            background: '#ff0000',
-                            transition: 'width 0.08s linear',
-                          }}
-                        />
-                      </div>
-                    )}
                   </div>
                 );
               })}
             </div>
 
             <div style={{ marginTop: 20, textAlign: 'center', color: '#aaccff', fontSize: 14 }}>
-              Свободно: {FREE_SLOTS} / Заблокировано: {TOTAL_SLOTS - FREE_SLOTS}
+              Free: {FREE_SLOTS} / Locked: {TOTAL_SLOTS - FREE_SLOTS}
             </div>
           </div>
         )}
 
         {activeTab === 'reactors' && (
           <div style={cardStyle}>
-            <h2>⚛️ Реакторы</h2>
+            <h2>⚛️ Reactors</h2>
 
             {reactors.map((r, i) => {
-              const remainingMs = r.startTime ? Math.max(0, r.startTime + r.duration - currentTime) : 0;
-              const remainingSec = Math.floor(remainingMs / 1000);
+              const remainingMs = r.startTime ? Math.max(0, r.startTime + r.duration - Date.now()) : 0;
 
               const isEmpty = !r.particle;
-              const isActive = !!r.particle && remainingSec > 0;
+              const isActive = !!r.particle && remainingMs > 0;
               const locked = i >= FREE_REACTORS;
 
               if (locked) {
@@ -506,17 +415,13 @@ const spendTon = (amount: number): boolean => {
                       color: '#a0c0ff66',
                     }}
                   >
-                    Реактор {i + 1}
+                    Reactor {i + 1}
                     <div style={{ marginTop: 8, fontSize: 40 }}>🔒</div>
-                    <small>Разблокировать в Донате</small>
+                    <small>Unlock in Donate</small>
                   </div>
                 );
               }
 
-              let selectedParticleLevel: number | undefined = undefined;
-              if (selectedIndex !== null) {
-                selectedParticleLevel = storage[selectedIndex]?.level;
-              }
               return (
                 <div
                   key={i}
@@ -529,37 +434,20 @@ const spendTon = (amount: number): boolean => {
                     border: '1px solid rgba(0,140,255,0.25)',
                   }}
                 >
-                  <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Реактор {i + 1}</div>
+                  <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Reactor {i + 1}</div>
 
                   {isEmpty ? (
                     <div style={{ color: '#88aaff', marginTop: 8 }}>
-                      Пусто
-                      {selectedParticleLevel !== undefined && selectedParticleLevel >= 6 && (
-                        <button
-                          onClick={() => placeInReactor(i, selectedIndex!)}
-                          style={{
-                            marginLeft: 12,
-                            padding: '4px 12px',
-                            background: '#3060ff',
-                            border: 'none',
-                            borderRadius: 6,
-                            color: 'white',
-                            cursor: 'pointer',
-                            fontSize: 14,
-                          }}
-                        >
-                          Вставить
-                        </button>
-                      )}
+                      Empty
                     </div>
                   ) : isActive ? (
                     <div style={{ marginTop: 8, color: '#aaffff' }}>
-                      Уровень: {r.particle!.level}
+                      Level: {r.particle!.level}
                       <br />
-                      Осталось: {formatTime(remainingMs)}
+                      Remaining: {formatTime(remainingMs)}
                     </div>
                   ) : (
-                    <div style={{ color: '#88ffaa', marginTop: 8 }}>Завершено — награда начислена</div>
+                    <div style={{ color: '#88ffaa', marginTop: 8 }}>Completed — reward claimed</div>
                   )}
                 </div>
               );
@@ -569,21 +457,21 @@ const spendTon = (amount: number): boolean => {
 
         {activeTab === 'donate' && (
           <div style={cardStyle}>
-            <h2>💎 Донат</h2>
-            <p>От 2 TON</p>
+            <h2>💎 Donate</h2>
+            <p>From 2 TON</p>
             <ul style={{ paddingLeft: 24, lineHeight: 1.8 }}>
-              <li>+16 слотов хранилища — 1.5 TON</li>
-              <li>+2 реактора — 2 TON</li>
-              <li>Буст редкости — 0.5 TON / 7 дней</li>
+              <li>+16 storage slots — 1.5 TON</li>
+              <li>+2 reactors — 2 TON</li>
+              <li>Rarity boost — 0.5 TON / 7 days</li>
             </ul>
           </div>
         )}
 
         {activeTab === 'profile' && (
           <div style={cardStyle}>
-            <h2>👤 Профиль</h2>
+            <h2>👤 Profile</h2>
             <div style={{ textAlign: 'center', margin: '16px 0' }}>
-              <div style={{ fontSize: 18, color: '#a0d0ff' }}>Баланс</div>
+              <div style={{ fontSize: 18, color: '#a0d0ff' }}>Balance</div>
               <div style={{ fontSize: 36, fontWeight: 'bold', color: tonBalance > 0 ? '#40e0ff' : '#ffaaaa' }}>
                 {tonBalance.toFixed(3)} TON
               </div>
@@ -614,7 +502,6 @@ const spendTon = (amount: number): boolean => {
           alignItems: 'center',
           zIndex: 100,
           padding: '0 10px',
-          boxShadow: '0 -4px 12px rgba(0,0,0,0.5)',
         }}
       >
         {['instruction', 'merge', 'reactors', 'donate', 'profile'].map(tab => (
@@ -622,40 +509,19 @@ const spendTon = (amount: number): boolean => {
             key={tab}
             onClick={() => setActiveTab(tab as Tab)}
             style={{
-              background: activeTab === tab ? 'rgba(64,192,255,0.18)' : 'transparent',
-              border: activeTab === tab 
-                ? '2px solid #40c0ff' 
-                : '1px solid rgba(64,192,255,0.25)',
-              borderRadius: 16,
+              background: 'none',
+              border: 'none',
               color: activeTab === tab ? '#40c0ff' : '#a0c0ff',
               fontSize: 14,
-              fontWeight: activeTab === tab ? 'bold' : 'normal',
               padding: '12px 16px',
               minWidth: 70,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 4,
               cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              boxShadow: activeTab === tab 
-                ? '0 4px 12px rgba(64,192,255,0.4)' 
-                : 'none',
             }}
           >
-            <span style={{ fontSize: 20 }}>
-              {tab === 'instruction' && '📖'}
-              {tab === 'merge' && '🧊'}
-              {tab === 'reactors' && '⚛️'}
-              {tab === 'donate' && '💎'}
-              {tab === 'profile' && '👤'}
-            </span>
-            <span style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
-              {tab === 'instruction' ? 'Инстр.' :
-               tab === 'merge' ? 'Сбор' :
-               tab === 'reactors' ? 'Реакт.' :
-               tab === 'donate' ? 'Донат' : 'Профиль'}
-            </span>
+            {tab === 'instruction' ? 'Инстр.' :
+             tab === 'merge' ? 'Сбор' :
+             tab === 'reactors' ? 'Реакт.' :
+             tab === 'donate' ? 'Донат' : 'Профиль'}
           </button>
         ))}
       </nav>
