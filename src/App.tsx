@@ -3,6 +3,7 @@ import { TonConnectButton, useTonWallet } from '@tonconnect/ui-react';
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, onValue } from "firebase/database";
 
+// Firebase config
 const firebaseConfig = {
   apiKey: "AIzaSyBHl1Dw49IVli7P-BgPkGT_Z82NJuK_tLg",
   authDomain: "ton-fusion-lab.firebaseapp.com",
@@ -32,8 +33,11 @@ interface Reactor {
 function App() {
   const FREE_SLOTS = 7;
   const TOTAL_SLOTS = 20;
-  const SPAWN_INTERVAL_MS = 10 * 60 * 1000;
+  const SPAWN_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+  const REACTOR_TEST_MS = 60 * 1000; // 1 minute for test
+  // @ts-ignore 
   const REACTOR_MIN_MS = 18 * 3600 * 1000;
+  // @ts-ignore
   const REACTOR_MAX_MS = 24 * 3600 * 1000;
   const FREE_REACTORS = 1;
   const TOTAL_REACTORS = 3;
@@ -53,7 +57,13 @@ function App() {
   );
 
   const [, forceUpdate] = useReducer(x => x + 1, 0);
-const getColor = (level: number): string =>
+
+  // Для модалки инвентаря реактора
+  const [showInventoryModal, setShowInventoryModal] = useState(false);
+  const [selectedReactorIndex, setSelectedReactorIndex] = useState<number | null>(null);
+
+  // Вспомогательные функции
+  const getColor = (level: number): string =>
     [
       '#4a90e2', '#50c878', '#f1c40f', '#e67e22', '#e74c3c',
       '#9b59b6', '#3498db', '#1abc9c', '#f39c12', '#ff4500',
@@ -75,6 +85,7 @@ const getColor = (level: number): string =>
     if (amount > 0) setTonBalance(prev => Number((prev + amount).toFixed(3)));
   };
 
+  const getReward = (level: number): number => level * 0.12; // Награда за уровень 1-20
   const collectToStorage = (spawnIdx: number) => {
     const particle = spawnSlots[spawnIdx];
     if (!particle) return;
@@ -120,7 +131,7 @@ const getColor = (level: number): string =>
 
     setStorage(prev => {
       const n = [...prev];
-      if (tgt && tgt.level === src.level && src.level < 10) {
+      if (tgt && tgt.level === src.level && src.level < 20) { // До 20 уровня
         n[idx] = { id: Date.now().toString(36) + Math.random().toString(36).slice(2), level: src.level + 1 };
         n[srcIdx] = null;
       } else if (!tgt) {
@@ -133,21 +144,27 @@ const getColor = (level: number): string =>
     setSelectedIndex(null);
   };
 
-  // @ts-ignore
-  const placeInReactor = (reactorIdx: number, storageIdx: number) => {
+  const openInventoryForReactor = (reactorIdx: number) => {
+    setSelectedReactorIndex(reactorIdx);
+    setShowInventoryModal(true);
+  };
+
+  const insertParticleIntoReactor = (storageIdx: number) => {
     const p = storage[storageIdx];
     if (!p || p.level < 6) {
       alert('Need level 6+ particle');
       return;
     }
 
+    if (selectedReactorIndex === null) return;
+
     setReactors(prev => {
       const next = [...prev];
-      if (next[reactorIdx].particle) return next;
-      next[reactorIdx] = {
+      if (next[selectedReactorIndex].particle) return next;
+      next[selectedReactorIndex] = {
         particle: { ...p },
         startTime: Date.now(),
-        duration: Math.floor(Math.random() * (REACTOR_MAX_MS - REACTOR_MIN_MS + 1)) + REACTOR_MIN_MS,
+        duration: REACTOR_TEST_MS, // 1 минута для теста
       };
       return next;
     });
@@ -158,6 +175,8 @@ const getColor = (level: number): string =>
       return n;
     });
 
+    setShowInventoryModal(false);
+    setSelectedReactorIndex(null);
     setSelectedIndex(null);
   };
   useEffect(() => {
@@ -205,7 +224,7 @@ const getColor = (level: number): string =>
           if (!r.particle || !r.startTime) return;
           const end = r.startTime + r.duration;
           if (now >= end) {
-            const reward = r.particle.level * 0.12;
+            const reward = getReward(r.particle.level);
             addTon(reward);
             alert(`Reactor ${i + 1} completed → +${reward.toFixed(3)} TON`);
             next[i] = { particle: null, startTime: null, duration: 0 };
@@ -285,7 +304,7 @@ const cardStyle = {
               <li>Particles appear every 10 minutes</li>
               <li>Merge same levels</li>
               <li>Level 6+ → reactors (1 free)</li>
-              <li>After 18–24h → TON to balance</li>
+              <li>After 1 min (test) → TON to balance</li>
             </ol>
           </div>
         )}
@@ -390,7 +409,6 @@ const cardStyle = {
             </div>
           </div>
         )}
-
         {activeTab === 'reactors' && (
           <div style={cardStyle}>
             <h2>⚛️ Reactors</h2>
@@ -426,6 +444,7 @@ const cardStyle = {
               return (
                 <div
                   key={i}
+                  onClick={() => isEmpty && openInventoryForReactor(i)}
                   style={{
                     background: 'rgba(25,35,70,0.55)',
                     borderRadius: 12,
@@ -433,6 +452,7 @@ const cardStyle = {
                     marginBottom: 12,
                     textAlign: 'center',
                     border: '1px solid rgba(0,140,255,0.25)',
+                    cursor: isEmpty ? 'pointer' : 'default'
                   }}
                 >
                   <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Reactor {i + 1}</div>
@@ -456,6 +476,48 @@ const cardStyle = {
           </div>
         )}
 
+        {showInventoryModal && (
+          <div style={{
+            position: 'fixed',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            background: 'rgba(15,20,45,0.9)',
+            borderRadius: '12px',
+            padding: '20px',
+            zIndex: 200,
+            maxWidth: '80%',
+            textAlign: 'center'
+          }}>
+            <h2>Choose Particle for Reactor {`selectedReactorIndex + 1`}</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+              {storage.map((p, i) => p && p.level >= 6 ? (
+                <div
+                  key={i}
+                  onClick={() => insertParticleIntoReactor(i)}
+                  style={{
+                    aspectRatio: 1,
+                    background: getColor(p.level),
+                    border: '1px solid #80a0ff33',
+                    borderRadius: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 26,
+                    fontWeight: 'bold',
+                    color: '#fff',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {p.level}
+                </div>
+              ) : null)}
+            </div>
+            <button onClick={() => setShowInventoryModal(false)} style={{ marginTop: 20, padding: '8px 16px' }}>
+              Close
+            </button>
+          </div>
+        )}
         {activeTab === 'donate' && (
           <div style={cardStyle}>
             <h2>💎 Donate</h2>
