@@ -133,6 +133,7 @@ const getColor = (level: number): string =>
     setSelectedIndex(null);
   };
 
+  // @ts-ignore
   const placeInReactor = (reactorIdx: number, storageIdx: number) => {
     const p = storage[storageIdx];
     if (!p || p.level < 6) {
