@@ -1,7 +1,7 @@
 {
-  "url": "http://localhost:5173/",
+  "url": "https://ton-fusion-lab.vercel.app",
   "name": "TON Fusion Lab",
   "iconUrl": "https://ton.org/favicon.ico",
-  "termsOfUseUrl": "https://ton.org/terms",
-  "privacyPolicyUrl": "https://ton.org/privacy"
+  "termsOfUseUrl": "https://ton.org/terms-of-use",
+  "privacyPolicyUrl": "https://ton.org/privacy-policy"
 }
