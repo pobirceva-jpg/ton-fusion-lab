@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { TonConnectButton, useTonWallet } from '@tonconnect/ui-react';
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, onValue } from "firebase/database";
+import { getAuth, signInAnonymously } from "firebase/auth";
 
 // Firebase config
 const firebaseConfig = {
@@ -81,6 +82,18 @@ useEffect(() => {
   localStorage.setItem('ton_fusion_nextSpawnTime', nextSpawnTime.toString());
 }, [nextSpawnTime]);
   const wallet = useTonWallet();
+  useEffect(() => {
+  const auth = getAuth();
+  if (!auth.currentUser) {
+    signInAnonymously(auth)
+      .then(() => {
+        console.log("Анонимная авторизация прошла успешно");
+      })
+      .catch((error) => {
+        console.error("Ошибка анонимной авторизации:", error.code, error.message);
+      });
+  }
+}, []);
 
   const [activeTab, setActiveTab] = useState<Tab>('title');
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
@@ -257,7 +270,11 @@ useEffect(() => {
   useEffect(() => {
     if (!wallet?.account?.address) return;
 
-    const playerId = wallet.account.address.replace(/[^a-zA-Z0-9]/g, '_');
+    const auth = getAuth();
+const uid = auth.currentUser?.uid;
+if (!uid) return; // если авторизация ещё не прошла
+
+const playerId = uid; // или uid + '_' + wallet?.account?.address (если хочешь комбинировать);
     const playerRef = ref(db, `players/${playerId}`);
 
     const unsubscribe = onValue(playerRef, (snapshot) => {
