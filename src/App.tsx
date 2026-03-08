@@ -17,6 +17,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
+
 type Tab = 'title' | 'merge' | 'reactors' | 'donate' | 'profile';
 
 interface Particle {
@@ -30,70 +31,79 @@ interface Reactor {
   duration: number;
 }
 
-const FREE_SLOTS = 7;
+const INITIAL_FREE_SLOTS = 7;
 const TOTAL_SLOTS = 20;
-const SPAWN_INTERVAL_MS = 30 * 1000; // 30 секунд для теста
+const SPAWN_INTERVAL_MS = 30 * 1000;
 const REACTOR_DURATION_MS = 60 * 1000;
 
 const FREE_REACTORS = 1;
 const TOTAL_REACTORS = 3;
+
 function App() {
   const [storage, setStorage] = useState<(Particle | null)[]>(() => {
-  const saved = localStorage.getItem('ton_fusion_storage');
-  return saved ? JSON.parse(saved) : Array(TOTAL_SLOTS).fill(null);
-});
+    const saved = localStorage.getItem('ton_fusion_storage');
+    return saved ? JSON.parse(saved) : Array(TOTAL_SLOTS).fill(null);
+  });
 
-const [spawnSlots, setSpawnSlots] = useState<(Particle | null)[]>(() => {
-  const saved = localStorage.getItem('ton_fusion_spawnSlots');
-  return saved ? JSON.parse(saved) : [null, null];
-});
+  const [spawnSlots, setSpawnSlots] = useState<(Particle | null)[]>(() => {
+    const saved = localStorage.getItem('ton_fusion_spawnSlots');
+    return saved ? JSON.parse(saved) : [null, null];
+  });
 
-const [tonBalance, setTonBalance] = useState<number>(() => {
-  const saved = localStorage.getItem('ton_fusion_tonBalance');
-  return saved ? Number(saved) : 0;
-});
+  const [tonBalance, setTonBalance] = useState<number>(() => {
+    const saved = localStorage.getItem('ton_fusion_tonBalance');
+    return saved ? Number(saved) : 0;
+  });
 
-const [reactors, setReactors] = useState<Reactor[]>(() => {
-  const saved = localStorage.getItem('ton_fusion_reactors');
-  return saved ? JSON.parse(saved) : Array(TOTAL_REACTORS).fill({ particle: null, startTime: null, duration: 0 });
-});
+  const [reactors, setReactors] = useState<Reactor[]>(() => {
+    const saved = localStorage.getItem('ton_fusion_reactors');
+    return saved ? JSON.parse(saved) : Array(TOTAL_REACTORS).fill({ particle: null, startTime: null, duration: 0 });
+  });
 
-const [nextSpawnTime, setNextSpawnTime] = useState<number>(() => {
-  const saved = localStorage.getItem('ton_fusion_nextSpawnTime');
-  return saved ? Number(saved) : Date.now() + SPAWN_INTERVAL_MS;
-});
-useEffect(() => {
-  localStorage.setItem('ton_fusion_storage', JSON.stringify(storage));
-}, [storage]);
+  const [nextSpawnTime, setNextSpawnTime] = useState<number>(() => {
+    const saved = localStorage.getItem('ton_fusion_nextSpawnTime');
+    return saved ? Number(saved) : Date.now() + SPAWN_INTERVAL_MS;
+  });
 
-useEffect(() => {
-  localStorage.setItem('ton_fusion_spawnSlots', JSON.stringify(spawnSlots));
-}, [spawnSlots]);
+  const [unlockedSlots, setUnlockedSlots] = useState<number>(() => {
+    const saved = localStorage.getItem('ton_fusion_unlockedSlots');
+    return saved ? Number(saved) : INITIAL_FREE_SLOTS;
+  });
 
-useEffect(() => {
-  localStorage.setItem('ton_fusion_tonBalance', tonBalance.toString());
-}, [tonBalance]);
-
-useEffect(() => {
-  localStorage.setItem('ton_fusion_reactors', JSON.stringify(reactors));
-}, [reactors]);
-
-useEffect(() => {
-  localStorage.setItem('ton_fusion_nextSpawnTime', nextSpawnTime.toString());
-}, [nextSpawnTime]);
-  const wallet = useTonWallet();
   useEffect(() => {
-  const auth = getAuth();
-  if (!auth.currentUser) {
-    signInAnonymously(auth)
-      .then(() => {
-        console.log("Анонимная авторизация прошла успешно");
-      })
-      .catch((error) => {
-        console.error("Ошибка анонимной авторизации:", error.code, error.message);
-      });
-  }
-}, []);
+    localStorage.setItem('ton_fusion_storage', JSON.stringify(storage));
+  }, [storage]);
+
+  useEffect(() => {
+    localStorage.setItem('ton_fusion_spawnSlots', JSON.stringify(spawnSlots));
+  }, [spawnSlots]);
+
+  useEffect(() => {
+    localStorage.setItem('ton_fusion_tonBalance', tonBalance.toString());
+  }, [tonBalance]);
+
+  useEffect(() => {
+    localStorage.setItem('ton_fusion_reactors', JSON.stringify(reactors));
+  }, [reactors]);
+
+  useEffect(() => {
+    localStorage.setItem('ton_fusion_nextSpawnTime', nextSpawnTime.toString());
+  }, [nextSpawnTime]);
+
+  useEffect(() => {
+    localStorage.setItem('ton_fusion_unlockedSlots', unlockedSlots.toString());
+  }, [unlockedSlots]);
+
+  const wallet = useTonWallet();
+
+  useEffect(() => {
+    const auth = getAuth();
+    if (!auth.currentUser) {
+      signInAnonymously(auth)
+        .then(() => console.log("Анонимная авторизация прошла успешно"))
+        .catch((error) => console.error("Ошибка анонимной авторизации:", error.code, error.message));
+    }
+  }, []);
 
   const [activeTab, setActiveTab] = useState<Tab>('title');
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
@@ -103,18 +113,17 @@ useEffect(() => {
   const [currentTime, setCurrentTime] = useState(Date.now());
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(Date.now());
-    }, 1000);
+    const interval = setInterval(() => setCurrentTime(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
 
   const remainingMs = Math.max(0, nextSpawnTime - currentTime);
+
   const getColor = (level: number): string =>
     [
       '#4a90e2', '#50c878', '#f1c40f', '#e67e22', '#e74c3c',
       '#9b59b6', '#3498db', '#1abc9c', '#f39c12', '#ff4500',
-    ][level - 1] || '#ffffff';
+    ][level - 1] ?? '#ffffff';
 
   const generateParticle = (): Particle => ({
     id: Date.now().toString(36) + Math.random().toString(36).slice(2),
@@ -133,11 +142,12 @@ useEffect(() => {
   };
 
   const getReward = (level: number): number => level * 0.0025;
+
   const collectToStorage = (spawnIdx: number) => {
     const particle = spawnSlots[spawnIdx];
     if (!particle) return;
 
-    const emptyIdx = storage.findIndex((slot, i) => slot === null && i < FREE_SLOTS);
+    const emptyIdx = storage.findIndex((slot, i) => slot === null && i < unlockedSlots);
     if (emptyIdx === -1) {
       alert('Свободные слоты заполнены');
       return;
@@ -160,7 +170,7 @@ useEffect(() => {
 
   const handleCellClick = (idx: number, isSpawn: boolean) => {
     if (isSpawn) return collectToStorage(idx);
-    if (idx >= FREE_SLOTS) return;
+    if (idx >= unlockedSlots) return;
 
     if (selectedIndex === null) {
       if (storage[idx]) setSelectedIndex(idx);
@@ -190,6 +200,7 @@ useEffect(() => {
 
     setSelectedIndex(null);
   };
+
   const openReactorInventory = (reactorIdx: number) => {
     setSelectedReactorIdx(reactorIdx);
     setShowReactorModal(true);
@@ -246,6 +257,7 @@ useEffect(() => {
     const id = setInterval(spawnMissedParticles, 5000);
     return () => clearInterval(id);
   }, [nextSpawnTime]);
+
   // Проверка реакторов
   useEffect(() => {
     const id = setInterval(() => {
@@ -267,37 +279,40 @@ useEffect(() => {
     }, 15000);
     return () => clearInterval(id);
   }, []);
+
   useEffect(() => {
     if (!wallet?.account?.address) return;
 
-    const auth = getAuth();
-const uid = auth.currentUser?.uid;
-if (!uid) return; // если авторизация ещё не прошла
+    const playerId = wallet.account.address.replace(/[^a-zA-Z0-9]/g, '_');
+    const balanceRef = ref(db, `players/${playerId}/tonBalance`);
 
-const playerId = uid; // или uid + '_' + wallet?.account?.address (если хочешь комбинировать);
+    const unsubscribeBalance = onValue(balanceRef, (snapshot) => {
+      const newBalance = snapshot.val();
+      if (newBalance !== null && newBalance !== tonBalance) {
+        setTonBalance(newBalance);
+      }
+    });
+
     const playerRef = ref(db, `players/${playerId}`);
 
     const unsubscribe = onValue(playerRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        // setStorage(data.storage ?? Array(TOTAL_SLOTS).fill(null));
-        // setSpawnSlots(data.spawnSlots ?? [null, null]);
-        // setTonBalance(data.tonBalance ?? 0);
-        // setReactors(data.reactors ?? Array(TOTAL_REACTORS).fill({ particle: null, startTime: null, duration: 0 }));
-        // setNextSpawnTime(data.nextSpawnTime ?? Date.now() + SPAWN_INTERVAL_MS);
-        // setSelectedIndex(data.selectedIndex ?? null);
+        setUnlockedSlots(data.unlockedSlots ?? INITIAL_FREE_SLOTS);
       }
     });
 
     const saveInterval = setInterval(async () => {
       try {
         await set(playerRef, {
+          walletAddress: playerId,
           storage,
           spawnSlots,
           tonBalance,
           reactors,
           nextSpawnTime,
           selectedIndex,
+          unlockedSlots,
           lastSave: Date.now(),
         });
       } catch (err: any) {
@@ -307,9 +322,22 @@ const playerId = uid; // или uid + '_' + wallet?.account?.address (если �
 
     return () => {
       unsubscribe();
+      unsubscribeBalance();
       clearInterval(saveInterval);
     };
-  }, [wallet?.account?.address]);
+  }, [wallet?.account?.address, storage, spawnSlots, tonBalance, reactors, nextSpawnTime, selectedIndex, unlockedSlots]);
+
+  const handleBuySlot = () => {
+    const paidSlots = unlockedSlots - INITIAL_FREE_SLOTS;
+    const price = 0.5 + paidSlots * 0.75;
+    if (tonBalance < price) {
+      alert('Недостаточно TON');
+      return;
+    }
+    setTonBalance(prev => Number((prev - price).toFixed(4)));
+    setUnlockedSlots(prev => Math.min(prev + 1, TOTAL_SLOTS));
+  };
+
   const cardStyle = {
     background: 'rgba(15,20,45,0.65)',
     borderRadius: '12px',
@@ -333,10 +361,24 @@ const playerId = uid; // или uid + '_' + wallet?.account?.address (если �
         </div>
 
         {activeTab === 'title' && (
-          <div style={{ ...cardStyle, minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '120px', fontWeight: 'bold', background: 'linear-gradient(45deg, #40e0ff, #ff40c0)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+          <div
+            style={{
+              ...cardStyle,
+              minHeight: '60vh',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '120px',
+              fontWeight: 'bold',
+              background: 'linear-gradient(45deg, #40e0ff, #ff40c0)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+            }}
+          >
             TON
           </div>
         )}
+
         {activeTab === 'merge' && (
           <div style={cardStyle}>
             <h2>🧊 Сбор</h2>
@@ -377,14 +419,14 @@ const playerId = uid; // или uid + '_' + wallet?.account?.address (если �
                     cursor: 'pointer',
                   }}
                 >
-                  {p ? p.level :` Слот ${i + 1}`}
+                  {p ? p.level : `Слот ${i + 1}`}
                 </div>
               ))}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, maxWidth: 420, margin: '0 auto' }}>
               {storage.map((p, i) => {
-                const locked = i >= FREE_SLOTS;
+                const locked = i >= unlockedSlots;
                 if (locked) {
                   return (
                     <div
@@ -410,8 +452,7 @@ const playerId = uid; // или uid + '_' + wallet?.account?.address (если �
                   <div
                     key={i}
                     onClick={() => handleCellClick(i, false)}
-                    style={{
-                      aspectRatio: 1,
+                    style={{aspectRatio: 1,
                       background: p ? getColor(p.level) : 'rgba(30,40,80,0.4)',
                       border: '1px solid #80a0ff33',
                       borderRadius: 12,
@@ -431,14 +472,14 @@ const playerId = uid; // или uid + '_' + wallet?.account?.address (если �
             </div>
 
             <div style={{ marginTop: 20, textAlign: 'center', color: '#aaccff', fontSize: 14 }}>
-              Свободно: {FREE_SLOTS} / Заблокировано: {TOTAL_SLOTS - FREE_SLOTS}
+              Свободно: {unlockedSlots} / Заблокировано: {TOTAL_SLOTS - unlockedSlots}
             </div>
           </div>
         )}
+
         {activeTab === 'reactors' && (
           <div style={cardStyle}>
             <h2>⚛️ Реакторы</h2>
-
             {reactors.map((r, i) => {
               const remMs = r.startTime ? Math.max(0, r.startTime + r.duration - currentTime) : 0;
               const isEmpty = !r.particle;
@@ -477,11 +518,10 @@ const playerId = uid; // или uid + '_' + wallet?.account?.address (если �
                     marginBottom: 12,
                     textAlign: 'center',
                     border: '1px solid rgba(0,140,255,0.25)',
-                    cursor: isEmpty ? 'pointer' : 'default'
+                    cursor: isEmpty ? 'pointer' : 'default',
                   }}
                 >
                   <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Реактор {i + 1}</div>
-
                   {isEmpty ? (
                     <div style={{ color: '#88aaff', marginTop: 8 }}>Пусто</div>
                   ) : isActive ? (
@@ -500,52 +540,62 @@ const playerId = uid; // или uid + '_' + wallet?.account?.address (если �
         )}
 
         {showReactorModal && (
-          <div style={{
-            position: 'fixed',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            background: 'rgba(15,20,45,0.9)',
-            borderRadius: '12px',
-            padding: '20px',
-            zIndex: 200,
-            maxWidth: 420,
-            textAlign: 'center',
-          }}>
+          <div
+            style={{
+              position: 'fixed',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              background: 'rgba(15,20,45,0.9)',
+              borderRadius: '12px',
+              padding: '20px',
+              zIndex: 200,
+              maxWidth: 420,
+              textAlign: 'center',
+            }}
+          >
             <h2>Выберите частицу</h2>
-
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, margin: '20px 0' }}>
-              {storage.map((p, i) => p ? (
-                <div
-                  key={i}
-                  onClick={() => insertIntoReactor(i)}
-                  style={{
-                    aspectRatio: 1,
-                    background: getColor(p.level),
-                    border: '1px solid #80a0ff33',
-                    borderRadius: 12,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 26,
-                    fontWeight: 'bold',
-                    color: '#fff',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {p.level}
-                </div>
-              ) : null)}
+              {storage.map((p, i) =>
+                p ? (
+                  <div
+                    key={i}
+                    onClick={() => insertIntoReactor(i)}
+                    style={{
+                      aspectRatio: 1,
+                      background: getColor(p.level),
+                      border: '1px solid #80a0ff33',
+                      borderRadius: 12,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 26,
+                      fontWeight: 'bold',
+                      color: '#fff',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {p.level}
+                  </div>
+                ) : null
+              )}
             </div>
-
             <button
-              onClick={() => setShowReactorModal(false)}
-              style={{ padding: '8px 16px', background: '#ff4444', border: 'none', color: 'white', borderRadius: 8, cursor: 'pointer' }}
+            onClick={() => setShowReactorModal(false)}
+              style={{
+                padding: '8px 16px',
+                background: '#ff4444',
+                border: 'none',
+                color: 'white',
+                borderRadius: 8,
+                cursor: 'pointer',
+              }}
             >
               Закрыть
             </button>
           </div>
         )}
+
         {activeTab === 'donate' && (
           <div style={cardStyle}>
             <h2>💎 Донат</h2>
@@ -555,24 +605,61 @@ const playerId = uid; // или uid + '_' + wallet?.account?.address (если �
               <li>+2 реактора — 2 TON</li>
               <li>Буст редкости — 0.5 TON / 7 дней</li>
             </ul>
+
+            {unlockedSlots < TOTAL_SLOTS && (
+              <div style={{ marginTop: 20, textAlign: 'center' }}>
+                <button
+                  onClick={handleBuySlot}
+                  style={{
+                    padding: '10px 20px',
+                    background: '#40e0ff',
+                    border: 'none',
+                    color: '#0a0e1f',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                  }}
+                >
+                  Разблокировать 1 слот за {(0.5 + (unlockedSlots - INITIAL_FREE_SLOTS) * 0.75).toFixed(2)} TON
+                </button>
+              </div>
+            )}
           </div>
         )}
 
         {activeTab === 'profile' && (
           <div style={cardStyle}>
             <h2>👤 Профиль</h2>
+
             <div style={{ textAlign: 'center', margin: '16px 0' }}>
               <div style={{ fontSize: 18, color: '#a0d0ff' }}>Баланс</div>
-              <div style={{ fontSize: 36, fontWeight: 'bold', color: tonBalance > 0 ? '#40e0ff' : '#ffaaaa' }}>
+              <div
+                style={{
+                  fontSize: 36,
+                  fontWeight: 'bold',
+                  color: tonBalance > 0 ? '#40e0ff' : '#ffaaaa',
+                }}
+              >
                 {tonBalance.toFixed(3)} TON
               </div>
             </div>
+
             <div style={{ textAlign: 'center', margin: '20px 0' }}>
               <TonConnectButton />
             </div>
+
             {wallet?.account?.address && (
-              <div style={{ fontSize: 14, wordBreak: 'break-all', textAlign: 'center', opacity: 0.9 }}>
-                {wallet.account.address.slice(0, 8)}...{wallet.account.address.slice(-6)}
+              <div
+                style={{
+                  fontSize: 14,
+                  wordBreak: 'break-all',
+                  textAlign: 'center',
+                  opacity: 0.9,
+                }}
+              >
+                ID аккаунта: {wallet.account.address}
+                <br />
+                Коротко: {wallet.account.address.slice(0, 6)}...{wallet.account.address.slice(-6)}
               </div>
             )}
           </div>
@@ -595,7 +682,7 @@ const playerId = uid; // или uid + '_' + wallet?.account?.address (если �
           padding: '0 10px',
         }}
       >
-        {['title', 'merge', 'reactors', 'donate', 'profile'].map(tab => (
+        {['title', 'merge', 'reactors', 'donate', 'profile'].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab as Tab)}
